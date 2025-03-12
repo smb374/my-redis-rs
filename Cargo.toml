@@ -7,8 +7,10 @@ license-file = "LICENSE"
 description = "A mini redis clone in Rust."
 
 [dependencies]
+ahash = "0.8.11"
 anyhow = "1"
 bytes = "1"
+evmap = "10"
 nom = "8"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }

@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
 use nom::{
@@ -10,17 +10,17 @@ use nom::{
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProtocolData {
-    SimpleString(String),
-    SimpleError(String),
+    SimpleString(Arc<str>),
+    SimpleError(Arc<str>),
     Integer(i64),
-    BulkString(String),
+    BulkString(Arc<str>),
     Array(Vec<ProtocolData>),
     Null,
     Boolean(bool),
     Double(f64),
-    BigNums(String),
-    BulkError(String),
-    Verbatim(String, String),
+    BigNums(Arc<str>),
+    BulkError(Arc<str>),
+    Verbatim(Arc<str>, Arc<str>),
     Map(Vec<(ProtocolData, ProtocolData)>),
     Attributes(Vec<(ProtocolData, ProtocolData)>),
     Set(Vec<ProtocolData>),
@@ -54,7 +54,19 @@ pub fn encode_protocol(prot: ProtocolData) -> String {
         ProtocolData::SimpleError(s) => format!("-{}\r\n", &s),
         ProtocolData::Integer(v) => format!(":{}\r\n", v),
         ProtocolData::BulkString(s) => format!("${}\r\n{}\r\n", s.len(), s),
-        _ => unimplemented!(),
+        ProtocolData::Array(v) => {
+            let head = format!("*{}", v.len());
+            v.into_iter()
+                .map(|p| encode_protocol(p))
+                .fold(head, |mut acc, s| {
+                    acc.push_str("\r\n");
+                    acc.push_str(&s);
+                    acc
+                })
+                .to_string()
+        }
+        ProtocolData::Null => "_\r\n".to_string(),
+        _ => unimplemented!("Encoder for {:?} is not implemented.", prot),
     }
 }
 
@@ -64,14 +76,14 @@ fn parse_line(s: &str) -> IResult<&str, &str> {
 
 fn parse_simple_string(s: &str) -> IResult<&str, ProtocolData> {
     map((tag("+"), parse_line), |(_, x)| {
-        ProtocolData::SimpleString(x.to_string())
+        ProtocolData::SimpleString(Arc::from(x))
     })
     .parse(s)
 }
 
 fn parse_simple_error(s: &str) -> IResult<&str, ProtocolData> {
     map((tag("-"), parse_line), |(_, x)| {
-        ProtocolData::SimpleError(x.to_string())
+        ProtocolData::SimpleError(Arc::from(x))
     })
     .parse(s)
 }
@@ -85,7 +97,7 @@ fn parse_integer(s: &str) -> IResult<&str, ProtocolData> {
 
 fn parse_bulk_string(s: &str) -> IResult<&str, ProtocolData> {
     map((tag("$"), parse_line, parse_line), |(_, _, x)| {
-        ProtocolData::BulkString(x.to_string())
+        ProtocolData::BulkString(Arc::from(x))
     })
     .parse(s)
 }
@@ -131,14 +143,14 @@ fn parse_doubles(s: &str) -> IResult<&str, ProtocolData> {
 
 fn parse_bignum(s: &str) -> IResult<&str, ProtocolData> {
     map((tag("("), parse_line), |(_, x)| {
-        ProtocolData::BigNums(x.to_owned())
+        ProtocolData::BigNums(Arc::from(x))
     })
     .parse(s)
 }
 
 fn parse_bulk_error(s: &str) -> IResult<&str, ProtocolData> {
     map((tag("!"), parse_line, parse_line), |(_, _, x)| {
-        ProtocolData::BulkString(x.to_string())
+        ProtocolData::BulkString(Arc::from(x))
     })
     .parse(s)
 }
@@ -146,7 +158,7 @@ fn parse_bulk_error(s: &str) -> IResult<&str, ProtocolData> {
 fn parse_verbatim(s: &str) -> IResult<&str, ProtocolData> {
     map(
         (tag("="), parse_line, take_until(":"), tag(":"), parse_line),
-        |(_, _, encoding, _, data)| ProtocolData::Verbatim(encoding.to_owned(), data.to_owned()),
+        |(_, _, encoding, _, data)| ProtocolData::Verbatim(Arc::from(encoding), Arc::from(data)),
     )
     .parse(s)
 }
