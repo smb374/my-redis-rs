@@ -6,18 +6,20 @@ use std::{
 };
 
 use bytes::BytesMut;
-use evmap::{ReadHandleFactory, ShallowCopy, WriteHandle};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
+use evmap::ShallowCopy;
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 use crate::{
     command::{Command, Expire, SetCond, parse_command},
     protocol::{ProtocolData, encode_protocol, parse_protocol},
 };
 
+use super::Redis;
+
 #[derive(PartialEq, Eq, Hash, Clone)]
-struct Entry {
-    val: Arc<str>,
-    expire: Option<u64>,
+pub struct Entry {
+    pub val: Arc<str>,
+    pub expire: Option<u64>,
 }
 
 impl ShallowCopy for Entry {
@@ -32,31 +34,12 @@ impl ShallowCopy for Entry {
 }
 
 impl Entry {
-    fn expires(&self, curr_ms: u64) -> bool {
+    pub fn expires(&self, curr_ms: u64) -> bool {
         self.expire.map_or(false, |v| v < curr_ms)
-        // match self.expire {
-        //     None => false,
-        //     Some(v) => {
-        //         v < curr_ms
-        //     }
-        // }
     }
-}
-
-pub struct Redis {
-    reader: ReadHandleFactory<Arc<str>, Entry>,
-    writer: Mutex<WriteHandle<Arc<str>, Entry>>,
 }
 
 impl Redis {
-    pub fn new() -> Self {
-        let (reader, writer) = evmap::new();
-        Self {
-            reader: reader.factory(),
-            writer: Mutex::new(writer),
-        }
-    }
-
     async fn handle_command(&self, cmd: Command) -> anyhow::Result<ProtocolData> {
         match cmd {
             Command::Ping => Ok(ProtocolData::SimpleString(Arc::from("PONG"))),
@@ -120,7 +103,8 @@ impl Redis {
                 } else {
                     Ok(ProtocolData::SimpleString(Arc::from("OK")))
                 }
-            } // _ => unimplemented!("Command {:?} is not implemented yet.", cmd),
+            }
+            _ => unimplemented!("Command {:?} is not implemented yet.", cmd),
         }
     }
 
